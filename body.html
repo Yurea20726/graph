@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Body Sway Visualization</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    body { font-family: sans-serif; margin: 20px; }
+    svg { border: 1px solid #ccc; margin-top: 20px; }
+    .controls { margin: 10px 0; }
+    .controls label, .controls select { margin-right: 15px; }
+  </style>
+</head>
+<body>
+  <h2>How much sway does music (or lack of) have on our bodies?</h2>
+  <div class="controls">
+    <label>Music:
+      <select id="musicSelect">
+        <option value="Mozart's Jupiter with loudness shifted at 0.1Hz">Mozart 0.1 Hz</option>
+        <option value="Mozart's Jupiter with loudness shifted at 0.25Hz">Mozart 0.25 Hz</option>
+        <option value="Unmodified Mozart's Jupiter">Unmodified Mozart</option>
+        <option value="No Music">No Music</option>
+      </select>
+    </label>
+    <label>VR:
+      <select id="vrSelect">
+        <option value="VR environment off">VR Off</option>
+        <option value="VR environment on">VR On</option>
+        <option value="VR environment on and moving at 0.1 Hz, no music">VR Moving 0.1Hz</option>
+      </select>
+    </label>
+    <label>Eyes:
+      <select id="eyesSelect">
+        <option value="open">Open</option>
+        <option value="closed">Closed</option>
+      </select>
+    </label>
+  </div>
+  <svg width="900" height="450"></svg>
+
+  <script>
+    const svg = d3.select("svg");
+    const width = +svg.attr("width") - 100;
+    const height = +svg.attr("height") - 100;
+    const margin = { top: 20, right: 20, bottom: 50, left: 60 };
+
+    const xScale = d3.scaleLinear().range([margin.left, width]);
+    const yScale = d3.scaleLinear().range([height, margin.top]);
+
+    const xAxis = svg.append("g").attr("transform", `translate(0, ${height})`);
+    const yAxis = svg.append("g").attr("transform", `translate(${margin.left}, 0)`);
+
+    const currentLineGroup = svg.append("path")
+      .attr("fill", "none")
+      .attr("stroke", "steelblue")
+      .attr("stroke-width", 2);
+
+    d3.json("body_sway_final_labeled.json").then(data => {
+      data.forEach(d => {
+        d.Time = +d.Time;
+        d.Displacement = +d.Displacement;
+      });
+
+      function filterData() {
+        const music = document.getElementById("musicSelect").value;
+        const vr = document.getElementById("vrSelect").value;
+        const eyes = document.getElementById("eyesSelect").value;
+
+        return data.filter(d =>
+          d.Music === music &&
+          d.VR === vr &&
+          d.Eyes === eyes
+        );
+      }
+
+      function updateChart() {
+        const filtered = filterData().sort((a, b) => a.Time - b.Time);
+
+        if (filtered.length === 0) {
+          currentLineGroup.attr("d", null);
+          return;
+        }
+
+        xScale.domain(d3.extent(filtered, d => d.Time));
+        yScale.domain(d3.extent(filtered, d => d.Displacement));
+
+        const line = d3.line()
+          .x(d => xScale(d.Time))
+          .y(d => yScale(d.Displacement));
+
+        currentLineGroup.datum(filtered).attr("d", line);
+
+        xAxis.call(d3.axisBottom(xScale).tickFormat(d => `${d}s`));
+        yAxis.call(d3.axisLeft(yScale));
+      }
+
+      document.getElementById("musicSelect").addEventListener("change", updateChart);
+      document.getElementById("vrSelect").addEventListener("change", updateChart);
+      document.getElementById("eyesSelect").addEventListener("change", updateChart);
+
+      updateChart();
+    });
+  </script>
+</body>
+</html>
