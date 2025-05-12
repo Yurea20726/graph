@@ -8,52 +8,37 @@
     body { font-family: sans-serif; margin: 20px; }
     svg { border: 1px solid #ccc; margin-top: 20px; }
     .controls { margin: 10px 0; }
-    .controls label, .controls select { margin-right: 15px; }
+    .combination { margin: 5px 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .combination label { display: flex; align-items: center; gap: 4px; }
+    .combination button { padding: 2px 6px; }
+    #addBtn { margin-top: 10px; }
+    #legend { margin-top: 20px; font-size: 0.9em; }
+    #legend span { display: inline-block; margin-right: 15px; }
   </style>
 </head>
 <body>
   <h2>How much sway does music (or lack of) have on our bodies?</h2>
-  <div class="controls">
-    <label>Music:
-      <select id="musicSelect">
-        <option value="Mozart's Jupiter with loudness shifted at 0.1Hz">Mozart 0.1 Hz</option>
-        <option value="Mozart's Jupiter with loudness shifted at 0.25Hz">Mozart 0.25 Hz</option>
-        <option value="Unmodified Mozart's Jupiter">Unmodified Mozart</option>
-        <option value="No Music">No Music</option>
-      </select>
-    </label>
-    <label>VR:
-      <select id="vrSelect">
-        <option value="VR environment off">VR Off</option>
-        <option value="VR environment on">VR On</option>
-        <option value="VR environment on and moving at 0.1 Hz, no music">VR Moving 0.1Hz</option>
-      </select>
-    </label>
-    <label>Eyes:
-      <select id="eyesSelect">
-        <option value="open">Open</option>
-        <option value="closed">Closed</option>
-      </select>
-    </label>
-  </div>
+  <div id="combinations"></div>
+  <button id="addBtn">➕ Add Combination</button>
   <svg width="900" height="450"></svg>
+  <div id="legend"></div>
 
   <script>
     const svg = d3.select("svg");
-    const width = +svg.attr("width") - 100;
-    const height = +svg.attr("height") - 100;
+    const fullWidth = +svg.attr("width");
+    const fullHeight = +svg.attr("height");
     const margin = { top: 20, right: 20, bottom: 50, left: 60 };
+    const width = fullWidth - margin.left - margin.right;
+    const height = fullHeight - margin.top - margin.bottom;
 
-    const xScale = d3.scaleLinear().range([margin.left, width]);
-    const yScale = d3.scaleLinear().range([height, margin.top]);
+    const xScale = d3.scaleLinear().range([margin.left, margin.left + width]);
+    const yScale = d3.scaleLinear().range([margin.top + height, margin.top]);
 
-    const xAxis = svg.append("g").attr("transform", `translate(0, ${height})`);
+    const xAxis = svg.append("g").attr("transform", `translate(0, ${margin.top + height})`);
     const yAxis = svg.append("g").attr("transform", `translate(${margin.left}, 0)`);
 
-    const currentLineGroup = svg.append("path")
-      .attr("fill", "none")
-      .attr("stroke", "steelblue")
-      .attr("stroke-width", 2);
+    const colorScale = d3.scaleOrdinal(d3.schemeCategory10);
+    const lineGroup = svg.append("g");
 
     d3.json("body_sway_final_labeled.json").then(data => {
       data.forEach(d => {
@@ -61,44 +46,125 @@
         d.Displacement = +d.Displacement;
       });
 
-      function filterData() {
-        const music = document.getElementById("musicSelect").value;
-        const vr = document.getElementById("vrSelect").value;
-        const eyes = document.getElementById("eyesSelect").value;
+      const combinationsDiv = document.getElementById("combinations");
+      const legendDiv = document.getElementById("legend");
 
-        return data.filter(d =>
-          d.Music === music &&
-          d.VR === vr &&
-          d.Eyes === eyes
-        );
+      const allOptions = {
+        Music: [...new Set(data.map(d => d.Music))],
+        VR: [...new Set(data.map(d => d.VR))],
+        Eyes: [...new Set(data.map(d => d.Eyes))]
+      };
+
+      const combinationId = () => `combo-${Math.random().toString(36).slice(2)}`;
+
+      function createDropdown(category) {
+        const select = document.createElement("select");
+        allOptions[category].forEach(option => {
+          const opt = document.createElement("option");
+          opt.value = option;
+          opt.textContent = option;
+          select.appendChild(opt);
+        });
+        return select;
       }
+
+      function createCombination() {
+        const id = combinationId();
+        const wrapper = document.createElement("div");
+        wrapper.className = "combination";
+        wrapper.id = id;
+
+        const musicSelect = createDropdown("Music");
+        const vrSelect = createDropdown("VR");
+        const eyesSelect = createDropdown("Eyes");
+
+        // Redraw chart on any change
+        musicSelect.addEventListener("change", updateChart);
+        vrSelect.addEventListener("change", updateChart);
+        eyesSelect.addEventListener("change", updateChart);
+
+        const delBtn = document.createElement("button");
+        delBtn.textContent = "🗑";
+        delBtn.onclick = () => {
+          wrapper.remove();
+          updateChart();
+        };
+
+        wrapper.append("Music:", musicSelect, "VR:", vrSelect, "Eyes:", eyesSelect, delBtn);
+        combinationsDiv.appendChild(wrapper);
+        updateChart();
+      }
+
+      document.getElementById("addBtn").addEventListener("click", () => {
+        createCombination();
+      });
 
       function updateChart() {
-        const filtered = filterData().sort((a, b) => a.Time - b.Time);
+        const combos = Array.from(document.querySelectorAll(".combination")).map((div, i) => {
+          const selects = div.querySelectorAll("select");
+          return {
+            Music: selects[0].value,
+            VR: selects[1].value,
+            Eyes: selects[2].value,
+            color: colorScale(i)
+          };
+        });
 
-        if (filtered.length === 0) {
-          currentLineGroup.attr("d", null);
-          return;
+        lineGroup.selectAll("path").remove();
+        legendDiv.innerHTML = "";
+
+        let allFiltered = [];
+
+        combos.forEach(combo => {
+          const filtered = data.filter(d =>
+            d.Music === combo.Music &&
+            d.VR === combo.VR &&
+            d.Eyes === combo.Eyes
+          ).sort((a, b) => a.Time - b.Time);
+
+          if (filtered.length > 0) {
+            allFiltered.push(...filtered);
+          }
+        });
+
+        if (allFiltered.length > 0) {
+          xScale.domain(d3.extent(allFiltered, d => d.Time));
+          const yExtent = d3.extent(allFiltered, d => d.Displacement);
+          const padding = (yExtent[1] - yExtent[0]) * 0.05;  // 10% padding
+          yScale.domain([yExtent[0] - padding, yExtent[1] + padding]);
+
+          xAxis.call(d3.axisBottom(xScale).tickFormat(d => `${d}s`));
+          yAxis.call(d3.axisLeft(yScale));
         }
 
-        xScale.domain(d3.extent(filtered, d => d.Time));
-        yScale.domain(d3.extent(filtered, d => d.Displacement));
+        combos.forEach(combo => {
+          const filtered = data.filter(d =>
+            d.Music === combo.Music &&
+            d.VR === combo.VR &&
+            d.Eyes === combo.Eyes
+          ).sort((a, b) => a.Time - b.Time);
 
-        const line = d3.line()
-          .x(d => xScale(d.Time))
-          .y(d => yScale(d.Displacement));
+          if (filtered.length > 0) {
+            allFiltered.push(...filtered);
+            const line = d3.line()
+              .x(d => xScale(d.Time))
+              .y(d => yScale(d.Displacement));
 
-        currentLineGroup.datum(filtered).attr("d", line);
+            lineGroup.append("path")
+              .datum(filtered)
+              .attr("fill", "none")
+              .attr("stroke", combo.color)
+              .attr("stroke-width", 2)
+              .attr("d", line);
 
-        xAxis.call(d3.axisBottom(xScale).tickFormat(d => `${d}s`));
-        yAxis.call(d3.axisLeft(yScale));
+            const span = document.createElement("span");
+            span.innerHTML = `<span style='display:inline-block;width:12px;height:12px;background:${combo.color};margin-right:5px;'></span>${combo.Music} / ${combo.VR} / ${combo.Eyes}`;
+            legendDiv.appendChild(span);
+          }
+        });
       }
 
-      document.getElementById("musicSelect").addEventListener("change", updateChart);
-      document.getElementById("vrSelect").addEventListener("change", updateChart);
-      document.getElementById("eyesSelect").addEventListener("change", updateChart);
-
-      updateChart();
+      createCombination();
     });
   </script>
 </body>
